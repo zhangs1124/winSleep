@@ -19,8 +19,10 @@ namespace winSleep
         private int warningSeconds = 30;   // 新增：預設30秒的警告時間
         private ToolStripMenuItem countdownItem;
         private KeyboardHook keyboardHook;
+        private MouseHook mouseHook;
         private bool isPaused = false;  // 新增：用於追蹤暫停狀態
         private ToolStripMenuItem pauseItem;  // 新增：暫停選單項目
+        private ToolStripMenuItem sleepNowItem; // 新增：立即休眠
 
         [DllImport("user32.dll")]
         static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
@@ -56,6 +58,10 @@ namespace winSleep
             // 新增：暫停/繼續選單項目
             pauseItem = new ToolStripMenuItem("暫停計時", null, OnPauseClick);
             contextMenu.Items.Add(pauseItem);
+
+            // 新增：立即進入休眠
+            sleepNowItem = new ToolStripMenuItem("立即休眠", null, OnSleepNowClick);
+            contextMenu.Items.Add(sleepNowItem);
             
             contextMenu.Items.Add("設定時間", null, OnSettingsClick);
             contextMenu.Items.Add("退出", null, OnExitClick);
@@ -68,6 +74,8 @@ namespace winSleep
 
             // 初始化鍵盤鉤子
             keyboardHook = new KeyboardHook(this);
+            // 初始化滑鼠鉤子
+            mouseHook = new MouseHook(this);
 
             lastActivityTime = DateTime.Now;
             this.WindowState = FormWindowState.Minimized;
@@ -80,6 +88,10 @@ namespace winSleep
             if (keyboardHook != null)
             {
                 keyboardHook.Dispose();
+            }
+            if (mouseHook != null)
+            {
+                mouseHook.Dispose();
             }
         }
 
@@ -206,6 +218,24 @@ namespace winSleep
 
                 // 等待一段時間確保系統有時間進入休眠
                 System.Threading.Thread.Sleep(2000);
+            }
+        }
+
+        private void OnSleepNowClick(object sender, EventArgs e)
+        {
+            SleepNow();
+        }
+
+        private void SleepNow()
+        {
+            activityTimer.Stop();
+            try
+            {
+                Process.Start("rundll32.exe", "powrprof.dll,SetSuspendState 0,1,0");
+            }
+            finally
+            {
+                System.Threading.Thread.Sleep(500);
             }
         }
 
