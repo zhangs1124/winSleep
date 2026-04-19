@@ -12,17 +12,19 @@ namespace winSleep
 {
     public partial class Form1 : Form
     {
+        private const string APP_VERSION = "v1.1.20260419";
         private readonly Timer activityTimer = new Timer();
         private DateTime lastActivityTime;
         private NotifyIcon trayIcon;
-        private int sleepThreshold = 1800; // 預設30分鐘
-        private int warningSeconds = 30;   // 新增：預設30秒的警告時間
+        private int sleepThreshold = 1800; // 預設 30 分鐘 (1800秒)
+        private int warningSeconds = 60;   // 將告警倒數改為 1 分鐘 (60秒)
         private ToolStripMenuItem countdownItem;
         private KeyboardHook keyboardHook;
         private MouseHook mouseHook;
-        private bool isPaused = false;  // 新增：用於追蹤暫停狀態
-        private ToolStripMenuItem pauseItem;  // 新增：暫停選單項目
-        private ToolStripMenuItem sleepNowItem; // 新增：立即休眠
+        private bool isPaused;
+        private ToolStripMenuItem pauseItem;
+        private ToolStripMenuItem sleepNowItem;
+        private Form autoCloseForm;
 
         [DllImport("user32.dll")]
         static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
@@ -36,30 +38,25 @@ namespace winSleep
         public Form1()
         {
             InitializeComponent();
+            isPaused = false;
             InitializeApplication();
         }
 
         private void InitializeApplication()
         {
-            // 設定系統托盤圖示
-            trayIcon = new NotifyIcon
-            {
-                Icon = SystemIcons.Application,
-                Text = "自動休眠控制器",
-                Visible = true
-            };
+            trayIcon = new NotifyIcon();
+            trayIcon.Icon = SystemIcons.Application;
+            trayIcon.Text = string.Format("自動休眠控制器 {0}", APP_VERSION);
+            trayIcon.Visible = true;
 
-            // 建立右鍵選單
-            var contextMenu = new ContextMenuStrip();
+            ContextMenuStrip contextMenu = new ContextMenuStrip();
             countdownItem = new ToolStripMenuItem("剩餘時間: --:--") { Enabled = false };
             contextMenu.Items.Add(countdownItem);
             contextMenu.Items.Add("-");
             
-            // 新增：暫停/繼續選單項目
             pauseItem = new ToolStripMenuItem("暫停計時", null, OnPauseClick);
             contextMenu.Items.Add(pauseItem);
 
-            // 新增：立即進入休眠
             sleepNowItem = new ToolStripMenuItem("立即休眠", null, OnSleepNowClick);
             contextMenu.Items.Add(sleepNowItem);
             
@@ -67,14 +64,11 @@ namespace winSleep
             contextMenu.Items.Add("退出", null, OnExitClick);
             trayIcon.ContextMenuStrip = contextMenu;
 
-            // 初始化計時器
             activityTimer.Interval = 1000;
-            activityTimer.Tick += CheckActivity;
+            activityTimer.Tick += new EventHandler(CheckActivity);
             activityTimer.Start();
 
-            // 初始化鍵盤鉤子
             keyboardHook = new KeyboardHook(this);
-            // 初始化滑鼠鉤子
             mouseHook = new MouseHook(this);
 
             lastActivityTime = DateTime.Now;
@@ -85,140 +79,134 @@ namespace winSleep
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             base.OnFormClosing(e);
-            if (keyboardHook != null)
-            {
-                keyboardHook.Dispose();
-            }
-            if (mouseHook != null)
-            {
-                mouseHook.Dispose();
-            }
+            if (keyboardHook != null) keyboardHook.Dispose();
+            if (mouseHook != null) mouseHook.Dispose();
         }
 
         public void UpdateLastActivityTime()
         {
-            // 如果暫停中，不更新時間
-            if (isPaused)
-                return;
+            if (isPaused) return;
 
-            System.Diagnostics.Debug.WriteLine("Activity detected, resetting timer");
-            lastActivityTime = DateTime.Now;
-            if (!activityTimer.Enabled)
+            if (autoCloseForm != null && !autoCloseForm.IsDisposed && autoCloseForm.Visible)
             {
-                activityTimer.Start();
+                if (autoCloseForm.InvokeRequired)
+                {
+                    autoCloseForm.Invoke((MethodInvoker)delegate {
+                        autoCloseForm.DialogResult = System.Windows.Forms.DialogResult.Cancel;
+                        autoCloseForm.Close();
+                    });
+                }
+                else
+                {
+                    autoCloseForm.DialogResult = System.Windows.Forms.DialogResult.Cancel;
+                    autoCloseForm.Close();
+                }
             }
+
+            lastActivityTime = DateTime.Now;
+            if (!activityTimer.Enabled) activityTimer.Start();
             
-            // 更新托盤圖示顯示
-            var remainingTime = TimeSpan.FromSeconds(sleepThreshold);
-            countdownItem.Text = $"進入休眠倒數: {remainingTime.Minutes:D2}:{remainingTime.Seconds:D2}";
-            trayIcon.Text = $"自動休眠控制器\n剩餘: {remainingTime.Minutes:D2}:{remainingTime.Seconds:D2}";
+            TimeSpan remainingTime = TimeSpan.FromSeconds(sleepThreshold);
+            countdownItem.Text = string.Format("進入休眠倒數: {0:D2}:{1:D2}", remainingTime.Minutes, remainingTime.Seconds);
+            trayIcon.Text = string.Format("自動休眠控制器 {0} | 剩餘: {1:D2}:{2:D2}", APP_VERSION, remainingTime.Minutes, remainingTime.Seconds);
         }
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            // 移除這行，因為我們不再使用 StartActivityMonitoring
-            // StartActivityMonitoring();
         }
 
         private void CheckActivity(object sender, EventArgs e)
         {
-            // 如果暫停中，不執行檢查
-            if (isPaused)
-                return;
+            if (isPaused) return;
 
-            var inactiveTime = DateTime.Now - lastActivityTime;
-            var remainingTime = TimeSpan.FromSeconds(sleepThreshold) - inactiveTime;
+            TimeSpan inactiveTime = DateTime.Now - lastActivityTime;
+            TimeSpan remainingTime = TimeSpan.FromSeconds(sleepThreshold) - inactiveTime;
 
-            // 更新倒數時間顯示
             if (remainingTime.TotalSeconds > 0)
             {
-                countdownItem.Text = $"進入休眠倒數: {remainingTime.Minutes:D2}:{remainingTime.Seconds:D2}";
-                trayIcon.Text = $"自動休眠控制器\n剩餘: {remainingTime.Minutes:D2}:{remainingTime.Seconds:D2}";
+                countdownItem.Text = string.Format("進入休眠倒數: {0:D2}:{1:D2}", remainingTime.Minutes, remainingTime.Seconds);
+                trayIcon.Text = string.Format("自動休眠控制器 {0} | 剩餘: {1:D2}:{2:D2}", APP_VERSION, remainingTime.Minutes, remainingTime.Seconds);
             }
 
-            // 檢查是否需要進入休眠
             if (inactiveTime.TotalSeconds >= sleepThreshold)
             {
-                // 停止計時器
-                activityTimer.Stop();
-
-                // 建立一個自動關閉的訊息框
-                var autoCloseForm = new Form
-                {
-                    Size = new Size(400, 150),
-                    Text = "自動休眠控制器",
-                    StartPosition = FormStartPosition.CenterScreen,
-                    FormBorderStyle = FormBorderStyle.FixedDialog,
-                    MaximizeBox = false,
-                    MinimizeBox = false,
-                    TopMost = true
-                };
-
-                var messageLabel = new Label
-                {
-                    Text = $"系統將在 {warningSeconds} 秒後進入休眠模式\n已經 {sleepThreshold/60} 分 {sleepThreshold%60} 秒沒有鍵盤輸入\n\n按「取消」可以取消休眠",
-                    AutoSize = true,
-                    Location = new Point(20, 20)
-                };
-
-                var cancelButton = new Button
-                {
-                    Text = "取消",
-                    DialogResult = DialogResult.Cancel,
-                    Location = new Point(150, 80),
-                    Width = 80
-                };
-
-                var countdownLabel = new Label
-                {
-                    Text = "5",
-                    Location = new Point(20, 80),
-                    AutoSize = true
-                };
-
-                autoCloseForm.Controls.AddRange(new Control[] { messageLabel, cancelButton, countdownLabel });
-                autoCloseForm.CancelButton = cancelButton;
-
-                // 修改倒數計時
-                var countDown = warningSeconds;  // 使用設定的警告時間
-                var countDownTimer = new Timer { Interval = 1000 };
-                countDownTimer.Tick += (s, ev) =>
-                {
-                    countDown--;
-                    countdownLabel.Text = countDown.ToString();
-                    if (countDown <= 0)
-                    {
-                        countDownTimer.Stop();
-                        autoCloseForm.DialogResult = DialogResult.OK;
-                    }
-                };
-                countDownTimer.Start();
-
-                // 顯示對話框
-                var result = autoCloseForm.ShowDialog();
-
-                // 清理資源
-                countDownTimer.Dispose();
-                autoCloseForm.Dispose();
-
-                if (result == DialogResult.Cancel)
-                {
-                    // 如果使用者取消，重置計時器
-                    lastActivityTime = DateTime.Now;
-                    activityTimer.Start();
-                    return;
-                }
-
-                // 執行休眠指令前停止計時器
-                activityTimer.Stop();
-                
-                // 執行休眠指令
-                Process.Start("rundll32.exe", "powrprof.dll,SetSuspendState 0,1,0");
-
-                // 等待一段時間確保系統有時間進入休眠
-                System.Threading.Thread.Sleep(2000);
+                TriggerCountdown();
             }
+        }
+
+        private void TriggerCountdown()
+        {
+            activityTimer.Stop();
+
+            if (autoCloseForm != null && !autoCloseForm.IsDisposed)
+            {
+                autoCloseForm.Close();
+            }
+
+            autoCloseForm = new Form();
+            autoCloseForm.Size = new Size(400, 150);
+            autoCloseForm.Text = string.Format("自動休眠控制器 {0}", APP_VERSION);
+            autoCloseForm.StartPosition = FormStartPosition.CenterScreen;
+            autoCloseForm.FormBorderStyle = FormBorderStyle.FixedDialog;
+            autoCloseForm.MaximizeBox = false;
+            autoCloseForm.MinimizeBox = false;
+            autoCloseForm.TopMost = true;
+
+            Label messageLabel = new Label();
+            messageLabel.Text = string.Format("系統將在 {0} 秒後進入休眠模式\n已經 {1} 分 {2} 秒沒有鍵盤輸入\n\n按「取消」可以取消休眠", 
+                                            warningSeconds, sleepThreshold / 60, sleepThreshold % 60);
+            messageLabel.AutoSize = true;
+            messageLabel.Location = new Point(20, 20);
+
+            Button cancelButton = new Button();
+            cancelButton.Text = "取消";
+            cancelButton.DialogResult = System.Windows.Forms.DialogResult.Cancel;
+            cancelButton.Location = new Point(150, 80);
+            cancelButton.Width = 80;
+
+            Label countdownLabel = new Label();
+            countdownLabel.Text = warningSeconds.ToString();
+            countdownLabel.Location = new Point(20, 80);
+            countdownLabel.AutoSize = true;
+
+            autoCloseForm.Controls.Add(messageLabel);
+            autoCloseForm.Controls.Add(cancelButton);
+            autoCloseForm.Controls.Add(countdownLabel);
+            autoCloseForm.CancelButton = cancelButton;
+
+            int countDown = warningSeconds;
+            Timer countDownTimer = new Timer();
+            countDownTimer.Interval = 1000;
+            countDownTimer.Tick += (s, ev) =>
+            {
+                countDown--;
+                if (!autoCloseForm.IsDisposed)
+                {
+                    countdownLabel.Text = countDown.ToString();
+                }
+                
+                if (countDown <= 0)
+                {
+                    countDownTimer.Stop();
+                    autoCloseForm.DialogResult = System.Windows.Forms.DialogResult.OK;
+                }
+            };
+            countDownTimer.Start();
+
+            System.Windows.Forms.DialogResult result = autoCloseForm.ShowDialog();
+            countDownTimer.Dispose();
+            autoCloseForm.Dispose();
+
+            if (result == System.Windows.Forms.DialogResult.Cancel)
+            {
+                lastActivityTime = DateTime.Now;
+                activityTimer.Start();
+                return;
+            }
+
+            Process.Start("rundll32.exe", "powrprof.dll,SetSuspendState 0,1,0");
+            System.Threading.Thread.Sleep(2000);
         }
 
         private void OnSleepNowClick(object sender, EventArgs e)
@@ -228,111 +216,80 @@ namespace winSleep
 
         private void SleepNow()
         {
-            activityTimer.Stop();
-            try
-            {
-                Process.Start("rundll32.exe", "powrprof.dll,SetSuspendState 0,1,0");
-            }
-            finally
-            {
-                System.Threading.Thread.Sleep(500);
-            }
+            TriggerCountdown();
         }
 
         private void OnSettingsClick(object sender, EventArgs e)
         {
-            using (var dialog = new Form())
+            using (Form dialog = new Form())
             {
                 dialog.Text = "設定時間";
-                dialog.Width = 180;
+                dialog.Width = 200;
                 
-                // 休眠時間標籤
-                var timeLabel = new Label
-                {
-                    Text = "休眠時間:",
-                    Location = new Point(10, 10),
-                    AutoSize = true
-                };
+                Label timeLabel = new Label();
+                timeLabel.Text = "休眠時間:";
+                timeLabel.Location = new Point(10, 10);
+                timeLabel.AutoSize = true;
 
-                // 分鐘設定
-                var minutesUpDown = new NumericUpDown
-                {
-                    Minimum = 0,
-                    Maximum = 120,
-                    Value = sleepThreshold / 60,
-                    Location = new Point(10, timeLabel.Bottom + 5),
-                    Width = 60
-                };
+                NumericUpDown minutesUpDown = new NumericUpDown();
+                minutesUpDown.Minimum = 0;
+                minutesUpDown.Maximum = 120;
+                minutesUpDown.Value = sleepThreshold / 60;
+                minutesUpDown.Location = new Point(10, 30);
+                minutesUpDown.Width = 50;
 
-                // 秒數設定
-                var secondsUpDown = new NumericUpDown
-                {
-                    Minimum = 0,
-                    Maximum = 59,
-                    Value = sleepThreshold % 60,
-                    Location = new Point(minutesUpDown.Right + 5, minutesUpDown.Top),
-                    Width = 60
-                };
+                Label minText = new Label();
+                minText.Text = "分";
+                minText.Location = new Point(65, 32);
+                minText.AutoSize = true;
 
-                // 新增：警告時間標籤
-                var warningLabel = new Label
-                {
-                    Text = "警告時間(秒):",
-                    Location = new Point(10, minutesUpDown.Bottom + 15),
-                    AutoSize = true
-                };
+                NumericUpDown secondsUpDown = new NumericUpDown();
+                secondsUpDown.Minimum = 0;
+                secondsUpDown.Maximum = 59;
+                secondsUpDown.Value = sleepThreshold % 60;
+                secondsUpDown.Location = new Point(90, 30);
+                secondsUpDown.Width = 50;
 
-                // 新增：警告時間設定
-                var warningUpDown = new NumericUpDown
-                {
-                    Minimum = 5,
-                    Maximum = 120,
-                    Value = warningSeconds,
-                    Location = new Point(10, warningLabel.Bottom + 5),
-                    Width = 60
-                };
+                Label secText = new Label();
+                secText.Text = "秒";
+                secText.Location = new Point(145, 32);
+                secText.AutoSize = true;
 
-                var minutesLabel = new Label
-                {
-                    Text = "分",
-                    Location = new Point(minutesUpDown.Right - 15, minutesUpDown.Top + 2),
-                    AutoSize = true
-                };
+                Label warningLabel = new Label();
+                warningLabel.Text = "警告時間(秒):";
+                warningLabel.Location = new Point(10, 60);
+                warningLabel.AutoSize = true;
 
-                var secondsLabel = new Label
-                {
-                    Text = "秒",
-                    Location = new Point(secondsUpDown.Right - 15, secondsUpDown.Top + 2),
-                    AutoSize = true
-                };
+                NumericUpDown warningUpDown = new NumericUpDown();
+                warningUpDown.Minimum = 5;
+                warningUpDown.Maximum = 120;
+                warningUpDown.Value = (decimal)warningSeconds;
+                warningUpDown.Location = new Point(10, 80);
+                warningUpDown.Width = 60;
 
-                // 確定按鈕
-                var button = new Button
-                {
-                    Text = "確定",
-                    DialogResult = DialogResult.OK,
-                    Location = new Point((dialog.ClientSize.Width - 60) / 2, warningUpDown.Bottom + 10),
-                    Width = 60
-                };
+                Button button = new Button();
+                button.Text = "確定";
+                button.DialogResult = System.Windows.Forms.DialogResult.OK;
+                button.Location = new Point(60, 115);
+                button.Width = 60;
 
-                dialog.Controls.AddRange(new Control[] { 
-                    timeLabel, 
-                    minutesUpDown, minutesLabel,
-                    secondsUpDown, secondsLabel,
-                    warningLabel, warningUpDown,
-                    button 
-                });
+                dialog.Controls.Add(timeLabel);
+                dialog.Controls.Add(minutesUpDown);
+                dialog.Controls.Add(minText);
+                dialog.Controls.Add(secondsUpDown);
+                dialog.Controls.Add(secText);
+                dialog.Controls.Add(warningLabel);
+                dialog.Controls.Add(warningUpDown);
+                dialog.Controls.Add(button);
                 
-                dialog.Height = button.Bottom + 35;
+                dialog.Height = 190;
                 dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dialog.StartPosition = FormStartPosition.CenterScreen;
-                dialog.MaximizeBox = false;
-                dialog.MinimizeBox = false;
 
-                if (dialog.ShowDialog() == DialogResult.OK)
+                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
                 {
                     sleepThreshold = (int)(minutesUpDown.Value * 60 + secondsUpDown.Value);
-                    warningSeconds = (int)warningUpDown.Value;  // 儲存警告時間
+                    warningSeconds = (int)warningUpDown.Value;
                     lastActivityTime = DateTime.Now;
                 }
             }
@@ -344,7 +301,6 @@ namespace winSleep
             Application.Exit();
         }
 
-        // 新增：處理暫停/繼續點擊事件
         private void OnPauseClick(object sender, EventArgs e)
         {
             isPaused = !isPaused;
@@ -352,32 +308,26 @@ namespace winSleep
             {
                 activityTimer.Stop();
                 pauseItem.Text = "繼續計時";
-                trayIcon.Text = "自動休眠控制器 (已暫停)";
+                trayIcon.Text = string.Format("自動休眠控制器 {0} (已暫停)", APP_VERSION);
                 countdownItem.Text = "計時已暫停";
             }
             else
             {
-                lastActivityTime = DateTime.Now;  // 重置計時器
+                lastActivityTime = DateTime.Now;
                 activityTimer.Start();
                 pauseItem.Text = "暫停計時";
-                UpdateLastActivityTime();  // 更新顯示
+                UpdateLastActivityTime();
             }
         }
 
-        // 新增：系統恢復事件處理
         protected override void WndProc(ref Message m)
         {
             const int WM_POWERBROADCAST = 0x0218;
             const int PBT_APMRESUMEAUTOMATIC = 0x0012;
-
             if (m.Msg == WM_POWERBROADCAST && (int)m.WParam == PBT_APMRESUMEAUTOMATIC)
             {
-                // 系統從休眠恢復時重置時間和啟動計時器
                 lastActivityTime = DateTime.Now;
-                if (!activityTimer.Enabled)
-                {
-                    activityTimer.Start();
-                }
+                if (!activityTimer.Enabled) activityTimer.Start();
             }
             base.WndProc(ref m);
         }
