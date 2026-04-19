@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mermaid 圖表預覽範例</title>
+    <!-- 使用 Mermaid.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+        .mermaid { background: #f9f9f9; padding: 10px; border-radius: 8px; border: 1px solid #ddd; }
+        h1 { color: #333; }
+        code { background: #eee; padding: 2px 5px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Mermaid 圖表在地預覽</h1>
+    <p>如果您在 Visual Studio 或是瀏覽器中直接開啟此檔案，您會看到流程圖被渲染出來。</p>
+    
+    <div class="mermaid">
+    graph TD
+        A[開始] --> B{是否需要預覽?}
+        B -- 是 --> C[開啟此 HTML 檔案]
+        B -- 否 --> D[繼續編寫 Markdown]
+        C --> E[查看渲染結果]
+        D --> E
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    </script>
+</body>
+</html>

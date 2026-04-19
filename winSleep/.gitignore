@@ -1,1 +1,16 @@
 ﻿Token.md
+
+# Visual Studio 檔案
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.docstates
+
+# VS Code 檔案
+.vscode/
+
+# 其他
+*.cache
+*.log

@@ -51,6 +51,11 @@
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="UserActivityMessageFilter.cs" />
+    <None Include="mermaid_diagrams.md" />
+    <None Include="docs\auth.md" />
+    <None Include="mermaid_preview.html" />
+    <None Include="readme.md" />
+    <None Include="Token.md" />
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
